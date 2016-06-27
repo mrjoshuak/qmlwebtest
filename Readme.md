@@ -2,14 +2,14 @@
 
 ## Steps:
 
-1) `$> mkdir public`
-2) `$> npm install qmlweb`
+- 1) `$> mkdir public`
+- 2) `$> npm install qmlweb`
 
 Ok now what?  It's unclear.  The readme says **"Using one of the methods below, install the qmlweb JavaScript library"**.  Not sure
 what that is supposed to be but perhaps it's `node_modules/qmlweb/lib`, so let's give that a go.
 
-3) `$> cp -r node_modules/qmlweb/lib public`
-4) Create `public/index.html` with the following:
+- 3) `$> cp -r node_modules/qmlweb/lib public`
+- 4) Create `public/index.html` with the following:
 
 ```html
 <!DOCTYPE html>
@@ -23,8 +23,8 @@ what that is supposed to be but perhaps it's `node_modules/qmlweb/lib`, so let's
 </html>
 ```
 
-5) `$> mkdir public/qml`
-6) Create `public/qml/main.qml` with the following:
+- 5) `$> mkdir public/qml`
+- 6) Create `public/qml/main.qml` with the following:
 
 ```qml
 import QtQuick 2.0
@@ -43,15 +43,15 @@ Rectangle {
 }
 ```
 
-7) Open the file url for `public/index.html` fails to load `/lib/qt.js` since the path is absolute.
-8) Either change the script source path to `src="lib/qt.js"`, or run a simple server such as `python -m SimpleHTTPServer` to server the `public` folder.
+- 7) Open the file url for `public/index.html` fails to load `/lib/qt.js` since the path is absolute.
+- 8) Either change the script source path to `src="lib/qt.js"`, or run a simple server such as `python -m SimpleHTTPServer` to server the `public` folder.
 
 After the above modifications to the instructions it works, but it's not clear at all if this is a correct and complete installation.
 Let's test to see if we can find any imports.
 
 First let's create a separate QML for the Text Item.
 
-9) Create `public/qml/HelloText.qml` with the following
+- 9) Create `public/qml/HelloText.qml` with the following
 
 ```qml
 import QtQuick 2.0
@@ -67,7 +67,7 @@ Text {
 
 I change the color so I'll be sure to see the change.
 
-10) Change `public/qml/main.qml` to the following
+- 10) Change `public/qml/main.qml` to the following
 
 ```qml
 import QtQuick 2.0
@@ -82,7 +82,7 @@ Rectangle {
 
 Ok, this works, so we are able to get automatic imports.  Let's try QtQuick.Controls.
 
-11) Change `public/qml/main.qml` to the following
+- 11) Change `public/qml/main.qml` to the following
 
 ```qml
 import QtQuick 2.0
