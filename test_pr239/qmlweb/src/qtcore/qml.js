@@ -154,7 +154,8 @@ global.mergeObjects = function (obj1, obj2) {
   return mergedObject;
 }
 
-global.perContextConstructors = {};
+var importContextIds = 0;
+global.perImportContextConstructors = {};
 
 global.loadImports = function (self, imports) {
   constructors = mergeObjects(modules.Main, null);
@@ -173,7 +174,8 @@ global.loadImports = function (self, imports) {
     else
       constructors = mergeObjects(constructors, moduleConstructors);
   }
-  perContextConstructors[self.objectId] = constructors;
+  self.importContextId = importContextIds++;
+  perImportContextConstructors[self.importContextId] = constructors;
 }
 
 global.inherit = function(constructor, baseClass) {
@@ -219,12 +221,23 @@ function construct(meta) {
     var item,
         component;
 
-    if (meta.object.$class in constructors) {
-        meta.super = constructors[meta.object.$class];
-        item = new constructors[meta.object.$class](meta);
-        meta.super = undefined;
+    var constructors = perImportContextConstructors[meta.context.importContextId];
+
+    var classComponents = meta.object.$class.split(".")
+    for(var ci=0; ci<classComponents.length; ++ci) {
+        var c = classComponents[ci];
+        constructors = constructors[c]
+        if (constructors === undefined) {
+            break;
+        }
     }
-    else {
+
+    if (constructors !== undefined) {
+        var constructor = constructors;
+        meta.super = constructor;
+        item = new constructor(meta);
+        meta.super = undefined;
+    } else {
         // Load component from file. Please look at import.js for main notes.
         // Actually, we have to use that order:
         // 1) try to load component from current basePath
@@ -234,18 +247,33 @@ function construct(meta) {
         // Currently we support only 1,2 and 4 and use order: 4,1,2
         // TODO: engine.qmldirs is global for all loaded components. That's not qml's original behaviour.
         var qdirInfo = engine.qmldirs[meta.object.$class]; // Are we have info on that component in some imported qmldir files?
+
+        var oldExecutionContext = _executionContext;
+        _executionContext = meta.context;
+
         if (qdirInfo) {
             // We have that component in some qmldir, load it from qmldir's url
             component = Qt.createComponent( "@" + qdirInfo.url);
         }
-        else
-            component = Qt.createComponent(meta.object.$class + ".qml");
+        else {
+            var filePath;
+            if (classComponents.length === 2) {
+                filePath = engine.qualifiedImportPath(
+                    meta.context.importContextId, classComponents[0]) +
+                        classComponents[1];
+            } else {
+                filePath = classComponents[0];
+            }
+            component = Qt.createComponent(filePath + ".qml");
+        }
+
+        _executionContext = oldExecutionContext;
 
         if (component) {
-            var item = component.createObject(meta.parent, {}, meta.context);
+            var item = component.createObject(meta.parent);
 
             if (typeof item.dom != 'undefined')
-                item.dom.className += " " + meta.object.$class + (meta.object.id ? " " + meta.object.id : "");
+                item.dom.className += " " + classComponents[classComponents.length-1] + (meta.object.id ? " " + meta.object.id : "");
             var dProp; // Handle default properties
         } else {
             throw new Error("No constructor found for " + meta.object.$class);
@@ -258,6 +286,9 @@ function construct(meta) {
 
     // keep path in item for probale use it later in Qt.resolvedUrl
     item.$context["$basePath"] = engine.$basePath; //gut
+
+    // We want to use the item's scope, but this Component's imports
+    item.$context.importContextId = meta.context.importContextId;
 
     // Apply properties (Bindings won't get evaluated, yet)
     applyProperties(meta.object, item, item, item.$context);

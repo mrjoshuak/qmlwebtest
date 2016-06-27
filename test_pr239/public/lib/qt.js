@@ -597,7 +597,8 @@ global.mergeObjects = function (obj1, obj2) {
     return mergedObject;
 };
 
-global.perContextConstructors = {};
+var importContextIds = 0;
+global.perImportContextConstructors = {};
 
 global.loadImports = function (self, imports) {
     constructors = mergeObjects(modules.Main, null);
@@ -616,7 +617,8 @@ global.loadImports = function (self, imports) {
 
         if (moduleAlias !== "") constructors[moduleAlias] = mergeObjects(constructors[moduleAlias], moduleConstructors);else constructors = mergeObjects(constructors, moduleConstructors);
     }
-    perContextConstructors[self.objectId] = constructors;
+    self.importContextId = importContextIds++;
+    perImportContextConstructors[self.importContextId] = constructors;
 };
 
 global.inherit = function (constructor, baseClass) {
@@ -661,9 +663,21 @@ function callSuper(self, meta) {
 function construct(meta) {
     var item, component;
 
-    if (meta.object.$class in constructors) {
-        meta.super = constructors[meta.object.$class];
-        item = new constructors[meta.object.$class](meta);
+    var constructors = perImportContextConstructors[meta.context.importContextId];
+
+    var classComponents = meta.object.$class.split(".");
+    for (var ci = 0; ci < classComponents.length; ++ci) {
+        var c = classComponents[ci];
+        constructors = constructors[c];
+        if (constructors === undefined) {
+            break;
+        }
+    }
+
+    if (constructors !== undefined) {
+        var constructor = constructors;
+        meta.super = constructor;
+        item = new constructor(meta);
         meta.super = undefined;
     } else {
         // Load component from file. Please look at import.js for main notes.
@@ -675,15 +689,29 @@ function construct(meta) {
         // Currently we support only 1,2 and 4 and use order: 4,1,2
         // TODO: engine.qmldirs is global for all loaded components. That's not qml's original behaviour.
         var qdirInfo = engine.qmldirs[meta.object.$class]; // Are we have info on that component in some imported qmldir files?
+
+        var oldExecutionContext = _executionContext;
+        _executionContext = meta.context;
+
         if (qdirInfo) {
             // We have that component in some qmldir, load it from qmldir's url
             component = Qt.createComponent("@" + qdirInfo.url);
-        } else component = Qt.createComponent(meta.object.$class + ".qml");
+        } else {
+            var filePath;
+            if (classComponents.length === 2) {
+                filePath = engine.qualifiedImportPath(meta.context.importContextId, classComponents[0]) + classComponents[1];
+            } else {
+                filePath = classComponents[0];
+            }
+            component = Qt.createComponent(filePath + ".qml");
+        }
+
+        _executionContext = oldExecutionContext;
 
         if (component) {
-            var item = component.createObject(meta.parent, {}, meta.context);
+            var item = component.createObject(meta.parent);
 
-            if (typeof item.dom != 'undefined') item.dom.className += " " + meta.object.$class + (meta.object.id ? " " + meta.object.id : "");
+            if (typeof item.dom != 'undefined') item.dom.className += " " + classComponents[classComponents.length - 1] + (meta.object.id ? " " + meta.object.id : "");
             var dProp; // Handle default properties
         } else {
             throw new Error("No constructor found for " + meta.object.$class);
@@ -697,6 +725,9 @@ function construct(meta) {
 
     // keep path in item for probale use it later in Qt.resolvedUrl
     item.$context["$basePath"] = engine.$basePath; //gut
+
+    // We want to use the item's scope, but this Component's imports
+    item.$context.importContextId = meta.context.importContextId;
 
     // Apply properties (Bindings won't get evaluated, yet)
     applyProperties(meta.object, item, item, item.$context);
@@ -1086,7 +1117,7 @@ QMLEngine = function QMLEngine(element, options) {
         var QMLComponent = getConstructor('QtQml', '2.0', 'Component');
         var component = new QMLComponent({ object: tree, parent: parentComponent });
 
-        this.loadImports(tree.$imports);
+        this.loadImports(tree.$imports, undefined, component.importContextId);
         component.$basePath = engine.$basePath;
         component.$imports = tree.$imports; // for later use
         component.$file = file; // just for debugging
@@ -1175,7 +1206,7 @@ QMLEngine = function QMLEngine(element, options) {
       * Note importJs method in import.js 
     */
 
-    this.loadImports = function (importsArray, currentFileDir) {
+    this.loadImports = function (importsArray, currentFileDir, importContextId) {
         if (!this.qmldirsContents) {
             this.qmldirsContents = {}; // cache
 
@@ -1234,18 +1265,22 @@ QMLEngine = function QMLEngine(element, options) {
             }
 
             if (!content) {
-                console.log("qmlengine::loadImports: cannot load qmldir file for import name=", name);
-                // save blank info, meaning that we failed to load import
-                // this prevents repeated lookups
-                this.qmldirsContents[name] = {};
-
                 // NEW
                 // add that dir to import path list
                 // that means, lookup qml files in that failed dir by trying to load them directly
                 // this is not the same behavior as in Qt for "url" schemes,
                 // but it is same as for ordirnal disk files.
                 // So, we do it for experimental purposes.
-                if (nameIsDir) this.addImportPath(name + "/");
+                if (nameIsDir) {
+                    if (entry[3]) {
+                        /* Use entry[1] directly, as we don't want to include the
+                         * basePath, otherwise it gets prepended twice in
+                         * createComponent. */
+                        this.addQualifiedImportPath(importContextId, entry[3], entry[1] + "/");
+                    } else {
+                        this.addImportPath(name + "/");
+                    }
+                }
 
                 continue;
             }
@@ -1380,6 +1415,21 @@ QMLEngine = function QMLEngine(element, options) {
     this.addImportPath = function (dirpath) {
         if (!this.userAddedImportPaths) this.userAddedImportPaths = [];
         this.userAddedImportPaths.push(dirpath);
+    };
+
+    this.addQualifiedImportPath = function (importContextId, moduleQualifier, dirpath) {
+        if (!this.qualifiedImportPaths) this.qualifiedImportPaths = {};
+        if (!this.qualifiedImportPaths[importContextId]) {
+            this.qualifiedImportPaths[importContextId] = {};
+        }
+        this.qualifiedImportPaths[importContextId][moduleQualifier] = dirpath;
+    };
+
+    this.qualifiedImportPath = function (importContextId, moduleQualifier) {
+        if (!this.qualifiedImportPaths) return "";
+        var importPathsForContext = this.qualifiedImportPaths[importContextId];
+        if (!importPathsForContext) return "";
+        return importPathsForContext[moduleQualifier] || "";
     };
 
     this.setImportPathList = function (arrayOfDirs) {
@@ -1655,7 +1705,6 @@ var typeInitialValues = {
     string: '',
     bool: false,
     list: [],
-    enum: 0,
     url: ''
 };
 
@@ -1792,7 +1841,7 @@ global.Signal = function Signal(params, options) {
             try {
                 connectedSlots[i].slot.apply(connectedSlots[i].thisObj, arguments);
             } catch (err) {
-                console.log("Signal slot error:", err, Function.prototype.toString.call(connectedSlots[i].slot));
+                console.log(err.message);
             }
         }popEvalStack();
     };
@@ -2565,18 +2614,22 @@ QMLComponent.getAttachedObject = function () {
     return this.$Component;
 };
 
-QMLComponent.prototype.createObject = function (parent, properties, componentContext) {
+QMLComponent.prototype.createObject = function (parent, properties) {
     var oldState = engine.operationState;
     engine.operationState = QMLOperationState.Init;
     // change base path to current component base path
     var bp = engine.$basePath;engine.$basePath = this.$basePath ? this.$basePath : engine.$basePath;
 
-    if (!componentContext) componentContext = this.$context;
+    var context = this.$context ? Object.create(this.$context) : new QMLContext();
+
+    if (this.importContextId !== undefined) {
+        context.importContextId = this.importContextId;
+    }
 
     var item = construct({
         object: this.$metaObject,
         parent: parent,
-        context: componentContext ? Object.create(componentContext) : new QMLContext(),
+        context: context,
         isComponentRoot: true
     });
 
@@ -2733,7 +2786,7 @@ global.Qt = {
         component.$imports = tree.$imports;
         component.$file = file; // just for debugging
 
-        engine.loadImports(tree.$imports, component.$basePath);
+        engine.loadImports(tree.$imports, component.$basePath, component.importContextId);
 
         engine.components[origName] = component;
         return component;
@@ -2747,7 +2800,7 @@ global.Qt = {
         var QMLComponent = getConstructor('QtQml', '2.0', 'Component');
         var component = new QMLComponent({ object: tree, parent: parent, context: _executionContext });
 
-        engine.loadImports(tree.$imports);
+        engine.loadImports(tree.$imports, undefined, component.importContextId);
 
         if (!file) file = Qt.resolvedUrl("createQmlObject_function");
         component.$basePath = engine.extractBasePath(file);
@@ -4445,7 +4498,10 @@ function QMLItem(meta) {
         this.dom.style.position = "absolute";
     }
     this.dom.style.pointerEvents = "none";
-    this.dom.className = meta.object.$class + (this.id ? " " + this.id : "");
+    /* In case the class is qualified, only use the last part for the css class
+     * name. */
+    var classComponents = meta.object.$class.split(".");
+    this.dom.className = classComponents[classComponents.length - 1] + (this.id ? " " + this.id : "");
     this.css = this.dom.style;
     this.impl = null; // Store the actually drawn element
 

@@ -62,7 +62,7 @@ global.Qt = {
     component.$imports = tree.$imports;
     component.$file = file; // just for debugging
 
-    engine.loadImports( tree.$imports,component.$basePath );
+    engine.loadImports( tree.$imports, component.$basePath, component.importContextId );
 
     engine.components[origName] = component;
     return component;
@@ -76,7 +76,7 @@ global.Qt = {
         const QMLComponent = getConstructor('QtQml', '2.0', 'Component');
         var component = new QMLComponent({ object: tree, parent: parent, context: _executionContext });
 
-        engine.loadImports( tree.$imports );
+        engine.loadImports( tree.$imports, undefined, component.importContextId );
 
         if (!file) file = Qt.resolvedUrl("createQmlObject_function");
         component.$basePath = engine.extractBasePath(file);

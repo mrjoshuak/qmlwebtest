@@ -18,18 +18,22 @@ QMLComponent.getAttachedObject = function() { // static
     return this.$Component;
 }
 
-QMLComponent.prototype.createObject = function(parent, properties, componentContext) {
+QMLComponent.prototype.createObject = function(parent, properties) {
     var oldState = engine.operationState;
     engine.operationState = QMLOperationState.Init;
     // change base path to current component base path
     var bp = engine.$basePath; engine.$basePath = this.$basePath ? this.$basePath : engine.$basePath;
 
-    if (!componentContext) componentContext = this.$context;
+    var context = this.$context ? Object.create(this.$context) : new QMLContext();
+
+    if (this.importContextId !== undefined) {
+        context.importContextId = this.importContextId;
+    }
 
     var item = construct({
         object: this.$metaObject,
         parent: parent,
-        context: componentContext ? Object.create(componentContext) : new QMLContext(),
+        context: context,
         isComponentRoot: true
     });
 

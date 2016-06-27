@@ -109,5 +109,22 @@ TypeError: null is not an object (evaluating 'this.rootObject.$contenxt"        
 TypeError: null is not an object (evaluating 'this.rootObject.$contenxt"                 rootContext -- qt.js:1703
 ```
 
-Ok, so is this a bug, a known unsupported feature, or bad installation?
+Ok, so is this a bug, a known unsupported feature, or bad installation? 
 
+### Pull Request #239
+In folder `test_pr239`.  This PR seems to resolve the above issue.
+
+Procedure:
+
+```
+$> cd test_pr239
+$> git clone https://github.com/stephenmdangelo/qmlweb.git
+$> cd qmlweb
+$> git fetch origin pull/239/stephenmdangelo:per-import-context-constructors
+$> git checkout per-import-context-constructors
+$> npm install && npm run build
+$> cd ..
+$> cp -r qmlweb/lib public
+$> cd public
+$> python -m SimpleHttpServer
+```
